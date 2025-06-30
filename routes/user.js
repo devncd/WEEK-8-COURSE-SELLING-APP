@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const userRouter = Router();
+const { userAuth } = require('../middlewares/userAuth');
 
 userRouter.post('/signup', (req, res)=>{
     res.json({
@@ -13,7 +14,7 @@ userRouter.post('/signin', (req, res)=>{
     })
 })
 
-userRouter.get('/purchases', (req, res)=>{
+userRouter.get('/purchases', userAuth, (req, res)=>{
     res.json({
         message: "User purchases endpoint"
     })

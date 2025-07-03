@@ -44,10 +44,16 @@ const courseValidationSchema = z.object({
     // creatorId: handled by auth middlewares
 })
 
+const purchaseValidationSchema = z.object({
+    userId: z.string(),
+    courseId: z.string()
+})
+
 module.exports = {
     userSignupValidationSchema,
     userSigninValidationSchema,
     adminSignupValidationSchema,
     adminSigninValidationSchema,
-    courseValidationSchema
+    courseValidationSchema,
+    purchaseValidationSchema
 }

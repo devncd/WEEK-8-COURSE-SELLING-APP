@@ -10,7 +10,7 @@ function adminAuth(req, res, next) {
         })
     }
     const decodedId = jwt.verify(token, process.env.JWT_ADMIN_SECRET);
-    req.adminId = decodedId;
+    req.adminId = decodedId.userId;
     next();
 }
 

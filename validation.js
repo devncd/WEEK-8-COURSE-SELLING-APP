@@ -32,9 +32,22 @@ const adminSigninValidationSchema = z.object({
     password: passwordSchema
 });
 
+const courseValidationSchema = z.object({
+    // optional because not always present 
+    // (eg. courseId present for an update, but not for creation)
+    // (eg. only courseId present for delete)
+    title: z.string().trim().min(3).max(200).optional(),
+    description: z.string().trim().max(5000).optional(),
+    price: z.number().min(0).optional(),
+    imageUrl: z.string().max(300).optional(),
+    courseId: z.string().optional()
+    // creatorId: handled by auth middlewares
+})
+
 module.exports = {
     userSignupValidationSchema,
     userSigninValidationSchema,
     adminSignupValidationSchema,
-    adminSigninValidationSchema
+    adminSigninValidationSchema,
+    courseValidationSchema
 }

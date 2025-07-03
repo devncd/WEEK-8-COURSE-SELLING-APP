@@ -3,43 +3,43 @@ const { Router } = require('express');
 const adminRouter = Router();
 const { adminAuth } = require('../middlewares/adminAuth');
 const { z } = require('zod');
-const { adminSignupValidationSchema, adminSigninValidationSchema } = require('../validation');
+const { adminSignupValidationSchema, adminSigninValidationSchema, courseValidationSchema } = require('../validation');
 const bcrypt = require('bcrypt');
-const { AdminModel } = require('../db');
+const { AdminModel, CourseModel } = require('../db');
 const jwt = require('jsonwebtoken');
 
 adminRouter.post('/signup', async (req, res)=>{
-    try {
-        // get user details
-        const { email, password, firstName, lastName } = req.body;
+    // get user details
+    const { email, password, firstName, lastName } = req.body;
 
-        // validate input
-        const validationResult = adminSignupValidationSchema.safeParse({ 
-            email, 
-            password, 
-            firstName, 
-            lastName 
+    // validate input
+    const validationResult = adminSignupValidationSchema.safeParse({ 
+        email, 
+        password, 
+        firstName, 
+        lastName 
+    });
+
+    // if validation fails return a 400 bad request with errors
+    if(!validationResult.success) {
+        const validationErrors = validationResult.error.errors;
+        const simplifiedErrors = validationErrors.map(err => {
+            // makes error objects cleaner by keeping only the path and the message property
+            return {
+                path: err.path.join('.'), // .join() converts the path property (an array) into a string
+                message: err.message
+            }
         });
+        return res.status(400).json({
+            message: "Input validation failed.",
+            errors: simplifiedErrors
+        })
+    }
 
-        // if validation fails return a 400 bad request with errors
-        if(!validationResult.success) {
-            const validationErrors = validationResult.error.errors;
-            const simplifiedErrors = validationErrors.map(err => {
-                // makes error objects cleaner by keeping only the path and the message property
-                return {
-                    path: err.path.join('.'), // .join() converts the path property (an array) into a string
-                    message: err.message
-                }
-            });
-            return res.status(400).json({
-                message: "Input validation failed.",
-                errors: simplifiedErrors
-            })
-        }
+    // store validated data
+    const validatedData = validationResult.data;
 
-        // store validated data
-        const validatedData = validationResult.data;
-
+    try {
         // hash password
         const saltRounds = 5;
         const hashedPassword = await bcrypt.hash(validatedData.password, saltRounds);
@@ -76,19 +76,20 @@ adminRouter.post('/signup', async (req, res)=>{
 })
 
 adminRouter.post('/signin', async (req, res)=>{
+    
+    // get user details
+    const { email, password } = req.body;
+
+    // validate input
+    const validationResult = adminSigninValidationSchema.safeParse({ email, password });
+    if(!validationResult.success){
+        return res.status(400).json({
+            message: "Input validation failed."
+        })
+    }
+    const validatedData = validationResult.data;
+
     try {
-        // get user details
-        const { email, password } = req.body;
-
-        // validate input
-        const validationResult = adminSigninValidationSchema.safeParse({ email, password });
-        if(!validationResult.success){
-            return res.status(400).json({
-                message: "Input validation failed."
-            })
-        }
-        const validatedData = validationResult.data;
-
         // fetch user information from database
         const userFound = await AdminModel.findOne({ email: validatedData.email });
         if(!userFound){
@@ -134,33 +135,175 @@ adminRouter.post('/signin', async (req, res)=>{
         // generic 500 ISE for any other unhandled exceptions
         // (e.g. issues with bcrypt hashing, jwt signing, mongoose database connection etc.)
         return res.status(500).json({
-            message: "Internal Server Error."
+            message: "An internal server error occurred during signin. Please try again later."
         })
     }
 })
 
-adminRouter.post('/course', adminAuth, (req, res)=>{
-    res.json({
-        message: "Admin -> create course endpoint"
-    })
+
+//creates a new course
+adminRouter.post('/course', adminAuth, async (req, res)=>{
+    //get required information
+    const adminId = req.userId;
+    const { title, description, price, imageUrl } = req.body;
+
+    // validate input
+    const validationResult = courseValidationSchema.safeParse({ title, description, price, imageUrl });
+    if(!validationResult.success) {
+        return res.status(400).json({
+            message: "Incorrect data. Please provide valid input."
+        });
+    }
+    const validatedData = validationResult.data;
+
+    try{
+        // create course
+        await CourseModel.create({
+            title: validatedData.title, 
+            description: validatedData.description, 
+            price: validatedData.price, 
+            imageUrl: validatedData.imageUrl, 
+            creatorId: adminId
+        });
+
+        return res.status(200).json({
+            message: "New course added."
+        })
+
+    } catch (err) {
+        console.error("Error while creating a new course: " + err);
+
+        return res.status(500).json({
+            message: "An internal server error occurred while creating a new course. Please try again later."
+        })
+    }
 })
 
-adminRouter.put('/course', adminAuth, (req, res)=>{
-    res.json({
-        message: "Admin -> update course endpoint"
-    })
+
+// updates a specified course
+adminRouter.put('/course', adminAuth, async (req, res)=>{
+    //get required information
+    const adminId = req.userId;
+    const { title, description, price, imageUrl, courseId } = req.body;
+
+    // validate input
+    const validationResult = courseValidationSchema.safeParse({ title, description, price, imageUrl, courseId });
+    if(!validationResult.success) {
+        return res.status(400).json({
+            message: "Incorrect data. Please provide valid input."
+        });
+    }
+    const validatedData = validationResult.data;
+
+    try{
+        // confirm admin permission to update this course
+        const foundCourse = await CourseModel.findOne({
+            creatorId: adminId,
+            _id: courseId
+        });
+
+        if(!foundCourse){
+            return res.status(403).json({
+                message: "You do not have permission to modify this course."
+            })
+        }
+
+        // find and update course
+        await CourseModel.updateOne({
+            creatorId: adminId,
+            _id: courseId 
+        },
+            {
+            title: validatedData.title, 
+            description: validatedData.description, 
+            price: validatedData.price, 
+            imageUrl: validatedData.imageUrl, 
+            creatorId: adminId
+        });
+
+        return res.status(200).json({
+            message: "Course updated."
+        })
+
+    } catch (err) {
+        console.error("Error while updating a course: " + err);
+
+        return res.status(500).json({
+            message: "An internal server error occurred while updating a course. Please try again later."
+        })
+    }
 })
 
-adminRouter.delete('/course', adminAuth, (req, res)=>{
-    res.json({
-        message: "Admin -> delete course endpoint"
-    })
+
+// deletes a specified course
+adminRouter.delete('/course', adminAuth, async (req, res)=>{
+    //get required information
+    const adminId = req.userId;
+    const courseId = req.body.courseId;
+
+    // validate input
+    const validationResult = courseValidationSchema.safeParse({ courseId });
+    if(!validationResult.success) {
+        return res.status(400).json({
+            message: "Incorrect Course ID."
+        });
+    }
+    const validatedData = validationResult.data;
+
+    try{
+        // confirm admin permission to delete this course
+        const foundCourse = await CourseModel.findOne({
+            creatorId: adminId,
+            _id: courseId
+        });
+
+        if(!foundCourse){
+            return res.status(403).json({
+                message: "You do not have permission to delete this course."
+            })
+        }
+
+        // delete the course
+        await CourseModel.deleteOne({
+            creatorId: adminId,
+            _id: courseId 
+        });
+
+        return res.status(200).json({
+            message: "Course deleted."
+        })
+
+    } catch (err) {
+        console.error("Error while deleting a course: " + err);
+
+        return res.status(500).json({
+            message: "An internal server error occurred while deleting a course. Please try again later."
+        })
+    }
 })
 
-adminRouter.get('/course/bulk', adminAuth, (req, res)=>{
-    res.json({
-        message: "Admin -> get all courses endpoint"
-    })
+
+// returns all courses owned by the creator/admin
+adminRouter.get('/course/bulk', adminAuth, async (req, res)=>{
+    try {
+        const adminId = req.userId;
+
+        const courses = await CourseModel.find({
+            creatorId: adminId
+        });
+
+        return res.status(200).json({
+            message: "Course(s) retrieved.",
+            courses
+        })
+
+    } catch (err) {
+        console.error("Error while accessing courses: " + err);
+
+        return res.status(500).json({
+            message: "An internal server error occurred while accessing courses. Please try again later."
+        })
+    }
 })
 
 module.exports = {
